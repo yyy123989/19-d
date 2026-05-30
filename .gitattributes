@@ -1,0 +1,19 @@
+/.gitattributes text eol=lf
+/.gitignore text eol=lf
+
+*.c text eol=lf
+*.h text eol=lf
+*.s text eol=lf
+*.ld text eol=lf
+*.ioc text eol=lf
+*.uvprojx text eol=lf
+*.uvoptx text eol=lf
+*.dbgconf text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+
+*.png binary
+*.pdf binary
+*.zip binary
+*.rar binary

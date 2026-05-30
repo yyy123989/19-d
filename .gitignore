@@ -1,0 +1,47 @@
+# Local tool settings
+.claude/
+.tmp_*/
+**/.vscode/
+*.local.json
+
+# Archives, backups, and extracted reference bundles
+*.zip
+*.rar
+backups/
+5.24/
+ckp/
+实验14 ADC实验/
+TFT+AD7060B/参考/
+TFT+AD7060B/tmp_*.png
+
+# Manual source backups
+**/Backup/
+*.bak
+*.Bak
+
+# Keil / ARMCC build outputs
+**/Output/
+**/MDK-ARM/TFT_AD7606B/
+**/MDK-ARM/ckp/
+**/MDK-ARM/*.log
+**/MDK-ARM/**/*.log
+**/MDK-ARM/*.uvguix.*
+**/MDK-ARM/**/*.uvguix.*
+**/*.o
+**/*.d
+**/*.crf
+**/*.lst
+**/*.axf
+**/*.hex
+**/*.map
+**/*.lnp
+**/*.dep
+**/*.htm
+**/*.build_log.htm
+**/*_sct.Bak
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+*.swp
+*.tmp

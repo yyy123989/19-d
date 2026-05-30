@@ -1,0 +1,12 @@
+#ifndef AD9910_RAM_TABLES_H
+#define AD9910_RAM_TABLES_H
+
+#include <stdint.h>
+
+#define AD9910_RAM_TABLE_POINTS 1024U
+
+extern const uint32_t AD9910_RAM_AMP[AD9910_RAM_TABLE_POINTS];
+extern const uint32_t AD9910_RAM_FRE[AD9910_RAM_TABLE_POINTS];
+extern const uint32_t AD9910_RAM_PHA[AD9910_RAM_TABLE_POINTS];
+
+#endif
