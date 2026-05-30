@@ -28,6 +28,7 @@
 #include "ad7606b.h"
 #include "dds_app.h"
 #include "lcd.h"
+#include "serial_cmd.h"
 #include "serial_screen.h"
 #include "serial_wave.h"
 #include "ui_menu.h"
@@ -188,6 +189,7 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   SerialWave_Init();
+  SerialCommand_Init();
   SerialScreen_Init();
   UI_MenuKeysInit();
   LCD_Init();
@@ -226,6 +228,7 @@ int main(void)
     UI_KeyEvent key_event = UI_MenuScanKeys(now);
 
     DDS_AppHandleKey(key_event);
+    SerialCommand_Tick();
     DDS_AppTick(now);
 
     draw_due = ((uint32_t)(now - last_draw_tick) >= APP_LCD_REFRESH_MS) ? 1U : 0U;

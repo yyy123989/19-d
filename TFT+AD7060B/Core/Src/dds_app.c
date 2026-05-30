@@ -61,6 +61,9 @@ typedef struct {
   uint8_t single_freq;
   uint8_t single_amp;
   uint8_t single_phase;
+  uint32_t single_freq_hz;
+  uint16_t single_amp_code;
+  uint16_t single_phase_deg;
   uint8_t ram_mode;
   uint8_t ram_table;
   uint8_t drg_lower;
@@ -182,6 +185,28 @@ static uint32_t DDS_AppCalibratedFreq(uint32_t base_hz)
   return base_hz + offset;
 }
 
+static uint32_t DDS_AppClampFreq(uint32_t freq_hz)
+{
+  return (freq_hz > DDS_MAX_FREQ_HZ) ? DDS_MAX_FREQ_HZ : freq_hz;
+}
+
+static uint16_t DDS_AppClampAmp(uint16_t amplitude)
+{
+  return (amplitude > AD9910_MAX_AMPLITUDE) ? AD9910_MAX_AMPLITUDE : amplitude;
+}
+
+static uint16_t DDS_AppClampPhase(uint16_t phase_deg)
+{
+  return (phase_deg > 360U) ? 360U : phase_deg;
+}
+
+static void DDS_AppSyncSingleFromTable(void)
+{
+  dds_app.single_freq_hz = DDS_AppClampFreq(dds_freq_table[dds_app.single_freq]);
+  dds_app.single_amp_code = DDS_AppClampAmp(dds_amp_table[dds_app.single_amp]);
+  dds_app.single_phase_deg = DDS_AppClampPhase(dds_phase_table[dds_app.single_phase]);
+}
+
 static uint16_t DDS_AppCalibratedAmp(uint16_t base_amp)
 {
   uint32_t amp = ((uint32_t)base_amp * (uint32_t)(8U + dds_app.cal_gain)) / 16UL;
@@ -301,9 +326,9 @@ static void DDS_AppIncrementSelected(void)
 
 static void DDS_AppApplySingle(void)
 {
-  uint32_t freq = DDS_AppCalibratedFreq(dds_freq_table[dds_app.single_freq]);
-  uint16_t amp = DDS_AppCalibratedAmp(dds_amp_table[dds_app.single_amp]);
-  uint16_t phase = DDS_AppCalibratedPhase(dds_phase_table[dds_app.single_phase]);
+  uint32_t freq = DDS_AppCalibratedFreq(dds_app.single_freq_hz);
+  uint16_t amp = DDS_AppCalibratedAmp(dds_app.single_amp_code);
+  uint16_t phase = DDS_AppCalibratedPhase(dds_app.single_phase_deg);
 
   AD9910_SetOsk(0U);
   AD9910_SetSingleTone(freq, amp, phase);
@@ -434,7 +459,7 @@ static void DDS_DrawTopBar(const int16_t samples[AD7606B_CHANNEL_COUNT],
   char voltage[12];
 
   (void)snprintf(line, sizeof(line), "M:%s F:%lu", dds_mode_names[dds_app.home_mode],
-                 (unsigned long)dds_freq_table[dds_app.single_freq]);
+                 (unsigned long)dds_app.single_freq_hz);
   DDS_DrawLine(0U, line, LCD_COLOR_GREEN);
   (void)snprintf(line, sizeof(line), "AD:%s SPS:%lu", ad_state, (unsigned long)sample_rate_hz);
   DDS_DrawLine(22U, line, (sample_valid != 0U) ? LCD_COLOR_WHITE : LCD_COLOR_RED);
@@ -452,6 +477,7 @@ void DDS_AppInit(void)
   dds_app.single_freq = 5U;
   dds_app.single_amp = (uint8_t)(DDS_ARRAY_COUNT(dds_amp_table) - 1U);
   dds_app.single_phase = 0U;
+  DDS_AppSyncSingleFromTable();
   dds_app.ram_mode = 4U;
   dds_app.ram_table = DDS_RAM_TABLE_TRI;
   dds_app.drg_lower = 5U;
@@ -503,12 +529,52 @@ void DDS_AppHandleKey(UI_KeyEvent event)
     DDS_AppNextField();
   } else if (event == UI_KEY_EVENT_KEY0_SHORT) {
     DDS_AppIncrementSelected();
+    if (dds_app.page == DDS_PAGE_SINGLE) {
+      DDS_AppSyncSingleFromTable();
+    }
   } else if (event == UI_KEY_EVENT_KEY1_LONG) {
     dds_app.page = DDS_PAGE_HOME;
     dds_app.home_mode = dds_app.active_mode;
     dds_app.field = 0U;
   } else if (event == UI_KEY_EVENT_KEY0_LONG) {
     DDS_AppApplyCurrent();
+  }
+}
+
+uint8_t DDS_AppSetSingleCustom(uint32_t freq_hz, uint16_t amplitude, uint16_t phase_deg, uint8_t field_mask)
+{
+  if (field_mask == 0U) {
+    return 0U;
+  }
+
+  if ((field_mask & DDS_SINGLE_FIELD_FREQ) != 0U) {
+    dds_app.single_freq_hz = DDS_AppClampFreq(freq_hz);
+  }
+  if ((field_mask & DDS_SINGLE_FIELD_AMP) != 0U) {
+    dds_app.single_amp_code = DDS_AppClampAmp(amplitude);
+  }
+  if ((field_mask & DDS_SINGLE_FIELD_PHASE) != 0U) {
+    dds_app.single_phase_deg = DDS_AppClampPhase(phase_deg);
+  }
+
+  dds_app.home_mode = DDS_MODE_SINGLE;
+  dds_app.page = DDS_PAGE_SINGLE;
+  dds_app.field = 0U;
+  DDS_AppApplySingle();
+  draw_cache_valid = 0U;
+  return 1U;
+}
+
+void DDS_AppGetSingle(uint32_t *freq_hz, uint16_t *amplitude, uint16_t *phase_deg)
+{
+  if (freq_hz != 0) {
+    *freq_hz = dds_app.single_freq_hz;
+  }
+  if (amplitude != 0) {
+    *amplitude = dds_app.single_amp_code;
+  }
+  if (phase_deg != 0) {
+    *phase_deg = dds_app.single_phase_deg;
   }
 }
 
@@ -577,13 +643,13 @@ void DDS_AppDraw(const int16_t samples[AD7606B_CHANNEL_COUNT],
     }
   } else if (dds_app.page == DDS_PAGE_SINGLE) {
     (void)snprintf(line, sizeof(line), "%c F:%lu", (dds_app.field == 0U) ? '>' : ' ',
-                   (unsigned long)dds_freq_table[dds_app.single_freq]);
+                   (unsigned long)dds_app.single_freq_hz);
     DDS_DrawLine(78U, line, LCD_COLOR_WHITE);
     (void)snprintf(line, sizeof(line), "%c A:%u", (dds_app.field == 1U) ? '>' : ' ',
-                   (unsigned int)dds_amp_table[dds_app.single_amp]);
+                   (unsigned int)dds_app.single_amp_code);
     DDS_DrawLine(102U, line, LCD_COLOR_WHITE);
     (void)snprintf(line, sizeof(line), "%c P:%u", (dds_app.field == 2U) ? '>' : ' ',
-                   (unsigned int)dds_phase_table[dds_app.single_phase]);
+                   (unsigned int)dds_app.single_phase_deg);
     DDS_DrawLine(126U, line, LCD_COLOR_WHITE);
     (void)snprintf(line, sizeof(line), "CAL O:%lu G:%u",
                    (unsigned long)dds_offset_table[dds_app.cal_offset],

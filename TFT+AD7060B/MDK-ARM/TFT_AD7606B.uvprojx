@@ -445,6 +445,11 @@
               <FilePath>../Core/Src/serial_wave.c</FilePath>
             </File>
             <File>
+              <FileName>serial_cmd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/serial_cmd.c</FilePath>
+            </File>
+            <File>
               <FileName>serial_screen.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/serial_screen.c</FilePath>
