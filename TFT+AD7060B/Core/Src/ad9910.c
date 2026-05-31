@@ -29,6 +29,7 @@
 #define AD9910_RAM_TARGET_AMP_LOAD      0x40U
 #define AD9910_CFR1_RAM_ENABLE          0x80U
 #define AD9910_SINE_Q14_FULL_SCALE      16384UL
+#define AD9910_DELAY_NOP_COUNT          12U
 
 static const uint8_t AD9910_CFR1_DEFAULT[AD9910_CFR_BYTES] = {0x00U, 0x40U, 0x00U, 0x00U};
 static const uint8_t AD9910_CFR2_DEFAULT[AD9910_CFR_BYTES] = {0x01U, 0x00U, 0x00U, 0x00U};
@@ -60,10 +61,12 @@ static uint16_t AD9910_ClampAmplitude(uint16_t amplitude)
 
 static void AD9910_ShortDelay(void)
 {
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
+    uint8_t i;
+
+    for (i = 0U; i < AD9910_DELAY_NOP_COUNT; i++) {
+        __NOP();
+    }
+    __DSB();
 }
 
 static void AD9910_PinSet(GPIO_TypeDef *port, uint16_t pin)
@@ -74,6 +77,19 @@ static void AD9910_PinSet(GPIO_TypeDef *port, uint16_t pin)
 static void AD9910_PinClr(GPIO_TypeDef *port, uint16_t pin)
 {
     port->BSRR = ((uint32_t)pin << 16U);
+}
+
+static void AD9910_SelectChip(void)
+{
+    AD9910_PinClr(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_ShortDelay();
+}
+
+static void AD9910_DeselectChip(void)
+{
+    AD9910_ShortDelay();
+    AD9910_PinSet(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_ShortDelay();
 }
 
 static void AD9910_WriteByte(uint8_t data)
@@ -88,9 +104,11 @@ static void AD9910_WriteByte(uint8_t data)
             AD9910_PinClr(DDS_SDIO_GPIO_Port, DDS_SDIO_Pin);
         }
 
+        AD9910_ShortDelay();
         AD9910_PinSet(DDS_SCLK_GPIO_Port, DDS_SCLK_Pin);
         AD9910_ShortDelay();
         AD9910_PinClr(DDS_SCLK_GPIO_Port, DDS_SCLK_Pin);
+        AD9910_ShortDelay();
         data <<= 1U;
     }
 }
@@ -98,13 +116,25 @@ static void AD9910_WriteByte(uint8_t data)
 static void AD9910_WriteRegister(uint8_t reg, const uint8_t *data, uint8_t len)
 {
     uint8_t i;
+    uint32_t primask;
 
-    AD9910_PinClr(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    if ((data == NULL) && (len != 0U)) {
+        return;
+    }
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+
+    AD9910_SelectChip();
     AD9910_WriteByte(reg);
     for (i = 0U; i < len; i++) {
         AD9910_WriteByte(data[i]);
     }
-    AD9910_PinSet(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_DeselectChip();
+
+    if (primask == 0U) {
+        __enable_irq();
+    }
 }
 
 static void AD9910_PulseIoUpdate(void)
@@ -457,12 +487,12 @@ static void AD9910_SetRamTablePlaybackWithStep(AD9910_RamMode mode, AD9910_RamTa
     AD9910_WriteRamControl(mode, target, word_count, step_rate);
     AD9910_PulseIoUpdate();
 
-    AD9910_PinClr(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_SelectChip();
     AD9910_WriteByte(AD9910_RAM_REG);
     for (i = 0U; i < word_count; i++) {
         AD9910_WriteRamWord(words[i]);
     }
-    AD9910_PinSet(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_DeselectChip();
 
     AD9910_WriteRegister(AD9910_CFR1_REG, cfr1_run, sizeof(cfr1_run));
     AD9910_PulseIoUpdate();
@@ -494,13 +524,13 @@ void AD9910_SetRamPlayback(AD9910_RamMode mode, AD9910_RamWave wave,
     AD9910_WriteRamControl(mode, AD9910_RAM_TARGET_AMPLITUDE, AD9910_RAM_POINTS, step_rate);
     AD9910_PulseIoUpdate();
 
-    AD9910_PinClr(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_SelectChip();
     AD9910_WriteByte(AD9910_RAM_REG);
     for (i = 0U; i < AD9910_RAM_POINTS; i++) {
         ram_word = ((uint32_t)AD9910_RamWaveSample(wave, i, amplitude, duty_permille)) << 18U;
         AD9910_WriteRamWord(ram_word);
     }
-    AD9910_PinSet(DDS_CS_GPIO_Port, DDS_CS_Pin);
+    AD9910_DeselectChip();
 
     AD9910_WriteRegister(AD9910_CFR1_REG, cfr1_run, sizeof(cfr1_run));
     AD9910_PulseIoUpdate();
