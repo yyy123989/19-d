@@ -53,8 +53,7 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, AD_CONVST_Pin|AD_CS_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(AD_SCLK_GPIO_Port, AD_SCLK_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, AD_CONVST_Pin|AD_CS_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(DDS_RESET_GPIO_Port, DDS_RESET_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
@@ -69,13 +68,12 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, DDS_PROFILE0_Pin|DDS_OSK_Pin|DDS_DRCTL_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : AD_CONVST_Pin AD_CS_Pin AD_SCLK_Pin */
-  GPIO_InitStruct.Pin = AD_CONVST_Pin|AD_CS_Pin|AD_SCLK_Pin;
+  /*Configure GPIO pins : AD_CONVST_Pin AD_CS_Pin */
+  GPIO_InitStruct.Pin = AD_CONVST_Pin|AD_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-  /* Note: AD_SCLK (PA5) is later reconfigured as AF_PP by SPI1 MspInit. */
 
   /*Configure GPIO pin : DDS_RESET_Pin */
   GPIO_InitStruct.Pin = DDS_RESET_Pin;
@@ -135,8 +133,8 @@ void MX_GPIO_Init(void)
 
   /* EXTI interrupt init*/
   __HAL_GPIO_EXTI_CLEAR_IT(AD_BUSY_Pin);
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 1, 1);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  /* AD7606B_Init enables EXTI1 after the converter reset is complete. */
 
 }
 

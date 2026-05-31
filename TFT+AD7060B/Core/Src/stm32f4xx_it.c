@@ -213,7 +213,7 @@ void EXTI1_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   if ((TIM3->SR & TIM_SR_UIF) != 0U) {
-    TIM3->SR &= (uint16_t)~TIM_SR_UIF;
+    TIM3->SR = (uint32_t)~TIM_SR_UIF;
     APP_TIM3_IRQHandler();
   }
 }
@@ -232,7 +232,7 @@ void USART2_IRQHandler(void)
 void TIM4_IRQHandler(void)
 {
   if ((TIM4->SR & TIM_SR_UIF) != 0U) {
-    TIM4->SR &= (uint16_t)~TIM_SR_UIF;
+    TIM4->SR = (uint32_t)~TIM_SR_UIF;
     APP_TIM4_IRQHandler();
   }
 }

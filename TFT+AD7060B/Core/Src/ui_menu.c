@@ -64,7 +64,7 @@ UI_KeyEvent UI_MenuScanKeys(uint32_t now_ms)
         key->pressed = 0U;
         if (key->long_sent == 0U) {
           /* Prefer KEY0 short over KEY1 short when both fire. */
-          if ((best == UI_KEY_EVENT_NONE) || (key->short_event < best)) {
+          if ((best == UI_KEY_EVENT_NONE) || (key->short_event > best)) {
             best = key->short_event;
           }
         }

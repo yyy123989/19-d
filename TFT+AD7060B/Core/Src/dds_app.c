@@ -3,6 +3,7 @@
 #include "ad9910.h"
 #include "ad9910_ram_tables.h"
 #include "lcd.h"
+#include "measure_app.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -23,7 +24,8 @@ typedef enum {
   DDS_PAGE_DRG,
   DDS_PAGE_OSK,
   DDS_PAGE_CAL,
-  DDS_PAGE_AD_VIEW
+  DDS_PAGE_AD_VIEW,
+  DDS_PAGE_MEASURE
 } DDS_Page;
 
 typedef enum {
@@ -33,6 +35,7 @@ typedef enum {
   DDS_MODE_OSK,
   DDS_MODE_CAL,
   DDS_MODE_AD_VIEW,
+  DDS_MODE_MEASURE,
   DDS_MODE_COUNT
 } DDS_Mode;
 
@@ -88,7 +91,7 @@ typedef struct {
 } DDS_DrawCacheLine;
 
 static const char *dds_mode_names[] = {
-  "SINGLE", "RAM", "DRG", "OSK", "CAL", "AD VIEW"
+  "SINGLE", "RAM", "DRG", "OSK", "CAL", "AD VIEW", "MEASURE"
 };
 
 static const uint32_t dds_freq_table[] = {
@@ -253,6 +256,8 @@ static DDS_Page DDS_AppPageFromMode(DDS_Mode mode)
       return DDS_PAGE_CAL;
     case DDS_MODE_AD_VIEW:
       return DDS_PAGE_AD_VIEW;
+    case DDS_MODE_MEASURE:
+      return DDS_PAGE_MEASURE;
     case DDS_MODE_SINGLE:
     default:
       return DDS_PAGE_SINGLE;
@@ -525,6 +530,18 @@ void DDS_AppHandleKey(UI_KeyEvent event)
     return;
   }
 
+  if (dds_app.page == DDS_PAGE_MEASURE) {
+    if ((event == UI_KEY_EVENT_KEY1_LONG) || (event == UI_KEY_EVENT_KEY0_LONG)) {
+      dds_app.page = DDS_PAGE_HOME;
+      dds_app.home_mode = dds_app.active_mode;
+      dds_app.field = 0U;
+    } else {
+      Measure_AppHandleKey(event);
+    }
+    draw_cache_valid = 0U;
+    return;
+  }
+
   if (event == UI_KEY_EVENT_KEY1_SHORT) {
     DDS_AppNextField();
   } else if (event == UI_KEY_EVENT_KEY0_SHORT) {
@@ -632,6 +649,11 @@ void DDS_AppDraw(const int16_t samples[AD7606B_CHANNEL_COUNT],
   }
 
   DDS_DrawTopBar(samples, sample_valid, sample_rate_hz, fail_count);
+
+  if (dds_app.page == DDS_PAGE_MEASURE) {
+    Measure_AppDraw(sample_rate_hz, fail_count);
+    return;
+  }
 
   if (dds_app.page == DDS_PAGE_HOME) {
     for (i = 0U; i < DDS_MODE_COUNT; i++) {

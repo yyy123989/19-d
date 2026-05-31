@@ -59,9 +59,8 @@ void MX_FSMC_Init(void)
   hsram1.Init.AsynchronousWait = FSMC_ASYNCHRONOUS_WAIT_DISABLE;
   hsram1.Init.WriteBurst = FSMC_WRITE_BURST_DISABLE;
   hsram1.Init.PageSize = FSMC_PAGE_SIZE_NONE;
-  /* Timing — optimized for ILI9341 8080 16-bit interface @ 168MHz HCLK.
-   * AddressSetup=2 (~12ns, RS→WR↓), DataSetup=5 (~30ns, data→WR↑),
-   * AddressHold=2 (~12ns, WR↑→RS).  Full-screen fill: ~4.6ms vs ~34ms before. */
+  /* Timing optimized for the board TFT 8080 16-bit interface @ 168MHz HCLK.
+   * Keep 2019_D.ioc synchronized so CubeMX regeneration preserves this. */
   Timing.AddressSetupTime = 2;
   Timing.AddressHoldTime = 2;
   Timing.DataSetupTime = 5;

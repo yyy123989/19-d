@@ -15,13 +15,13 @@ static uint8_t serial_screen_field;
 static char serial_screen_cache[SERIAL_SCREEN_FIELD_COUNT][SERIAL_SCREEN_CACHE_TEXT_CHARS];
 static uint8_t serial_screen_cache_valid[SERIAL_SCREEN_FIELD_COUNT];
 
-static void SerialScreen_SendRaw(const char *command)
+static uint8_t SerialScreen_SendRaw(const char *command)
 {
   uint8_t packet[SERIAL_SCREEN_COMMAND_CHARS + 3U];
   uint16_t len = 0U;
 
   if (command == NULL) {
-    return;
+    return 0U;
   }
 
   while ((command[len] != '\0') && (len < (SERIAL_SCREEN_COMMAND_CHARS - 1U))) {
@@ -32,34 +32,40 @@ static void SerialScreen_SendRaw(const char *command)
   packet[len++] = 0xFFU;
   packet[len++] = 0xFFU;
   packet[len++] = 0xFFU;
-  USART2_Write(packet, len);
+  return USART2_Write(packet, len);
 }
 
-static void SerialScreen_SetText(const char *obj, const char *text)
+static uint8_t SerialScreen_SetText(const char *obj, const char *text)
 {
   char command[SERIAL_SCREEN_COMMAND_CHARS];
 
   if ((obj == NULL) || (text == NULL)) {
-    return;
-  }
-
-  (void)snprintf(command, sizeof(command), "%s.txt=\"%s\"", obj, text);
-  SerialScreen_SendRaw(command);
-}
-
-static uint8_t SerialScreen_TextChanged(uint8_t cache_index, const char *text)
-{
-  if ((cache_index >= SERIAL_SCREEN_FIELD_COUNT) || (text == NULL)) {
-    return 1U;
-  }
-  if ((serial_screen_cache_valid[cache_index] != 0U) &&
-      (strncmp(serial_screen_cache[cache_index], text, SERIAL_SCREEN_CACHE_TEXT_CHARS) == 0)) {
     return 0U;
   }
 
+  (void)snprintf(command, sizeof(command), "%s.txt=\"%s\"", obj, text);
+  return SerialScreen_SendRaw(command);
+}
+
+static uint8_t SerialScreen_TextSame(uint8_t cache_index, const char *text)
+{
+  if ((cache_index >= SERIAL_SCREEN_FIELD_COUNT) || (text == NULL)) {
+    return 0U;
+  }
+  if ((serial_screen_cache_valid[cache_index] != 0U) &&
+      (strncmp(serial_screen_cache[cache_index], text, SERIAL_SCREEN_CACHE_TEXT_CHARS) == 0)) {
+    return 1U;
+  }
+  return 0U;
+}
+
+static void SerialScreen_StoreText(uint8_t cache_index, const char *text)
+{
+  if ((cache_index >= SERIAL_SCREEN_FIELD_COUNT) || (text == NULL)) {
+    return;
+  }
   (void)snprintf(serial_screen_cache[cache_index], SERIAL_SCREEN_CACHE_TEXT_CHARS, "%s", text);
   serial_screen_cache_valid[cache_index] = 1U;
-  return 1U;
 }
 
 static void SerialScreen_SetChannel(uint8_t channel, int16_t raw)
@@ -75,8 +81,10 @@ static void SerialScreen_SetChannel(uint8_t channel, int16_t raw)
   (void)snprintf(obj, sizeof(obj), "va%u", (unsigned int)channel);
   (void)AD7606B_FormatVoltage(value, sizeof(value), raw, 1U);
   (void)snprintf(text, sizeof(text), "CH%u:%s", (unsigned int)(channel + 1U), value);
-  if (SerialScreen_TextChanged(channel, text) != 0U) {
-    SerialScreen_SetText(obj, text);
+  if (SerialScreen_TextSame(channel, text) == 0U) {
+    if (SerialScreen_SetText(obj, text) != 0U) {
+      SerialScreen_StoreText(channel, text);
+    }
   }
 }
 
@@ -115,8 +123,10 @@ void SerialScreen_Tick(uint32_t now_ms,
                      (sample_valid != 0U) ? "OK" : "ERR",
                      (unsigned long)sample_rate_hz,
                      (unsigned long)fail_count);
-      if (SerialScreen_TextChanged(AD7606B_CHANNEL_COUNT, text) != 0U) {
-        SerialScreen_SetText("t1", text);
+      if (SerialScreen_TextSame(AD7606B_CHANNEL_COUNT, text) == 0U) {
+        if (SerialScreen_SetText("t1", text) != 0U) {
+          SerialScreen_StoreText(AD7606B_CHANNEL_COUNT, text);
+        }
       }
     }
 

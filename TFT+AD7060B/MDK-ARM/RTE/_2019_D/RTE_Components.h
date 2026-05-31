@@ -3,8 +3,8 @@
  * Auto generated Run-Time-Environment Configuration File
  *      *** Do not modify ! ***
  *
- * Project: 'TFT_AD7606B' 
- * Target:  'TFT_AD7606B' 
+ * Project: '2019_D' 
+ * Target:  '2019_D' 
  */
 
 #ifndef RTE_COMPONENTS_H

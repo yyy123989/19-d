@@ -28,6 +28,7 @@
 #define AD9910_RAM_TARGET_PHASE_LOAD    0x20U
 #define AD9910_RAM_TARGET_AMP_LOAD      0x40U
 #define AD9910_CFR1_RAM_ENABLE          0x80U
+#define AD9910_SINE_Q14_FULL_SCALE      16384UL
 
 static const uint8_t AD9910_CFR1_DEFAULT[AD9910_CFR_BYTES] = {0x00U, 0x40U, 0x00U, 0x00U};
 static const uint8_t AD9910_CFR2_DEFAULT[AD9910_CFR_BYTES] = {0x01U, 0x00U, 0x00U, 0x00U};
@@ -123,6 +124,29 @@ static uint32_t AD9910_FrequencyToFtw(uint32_t freq_hz)
 static uint16_t AD9910_PhaseToPow(uint16_t phase_deg)
 {
     return (uint16_t)(((uint32_t)(phase_deg % 360U) * 65536UL) / 360UL);
+}
+
+static uint16_t AD9910_SineAbsQ14(uint16_t phase_deg)
+{
+    uint32_t phase;
+    uint32_t product;
+    uint32_t numerator;
+    uint32_t denominator;
+
+    phase = (uint32_t)(phase_deg % 360U);
+    if (phase > 180UL) {
+        phase = 360UL - phase;
+    }
+
+    product = phase * (180UL - phase);
+    if (product == 0UL) {
+        return 0U;
+    }
+
+    /* Bhaskara sine approximation: sin(x) ~= 4x(180-x)/(40500-x(180-x)). */
+    numerator = 4UL * product * AD9910_SINE_Q14_FULL_SCALE;
+    denominator = 40500UL - product;
+    return (uint16_t)((numerator + (denominator / 2UL)) / denominator);
 }
 
 static void AD9910_U32ToBytes(uint32_t value, uint8_t *data)
@@ -240,7 +264,6 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
     uint32_t sample;
     uint16_t half = AD9910_RAM_POINTS / 2U;
     uint16_t phase;
-    uint16_t distance;
 
     amplitude = AD9910_ClampAmplitude(amplitude);
     if ((duty_permille < 50U) || (duty_permille > 950U)) {
@@ -253,24 +276,18 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
                      amplitude : 0U;
             break;
         case AD9910_RAM_WAVE_SINE:
-        {
-            /* sin from 0 to 2*pi using integer lookup */
-            uint16_t sin_val;
+            /* Full-wave rectified sine envelope; RAM amplitude values are unipolar. */
             phase = (uint16_t)(((uint32_t)index * 360U) / AD9910_RAM_POINTS);
-            if (phase <= 180U) {
-                sin_val = (phase <= 90U) ? phase : (uint16_t)(180U - phase);
-            } else {
-                sin_val = (phase <= 270U) ? (uint16_t)(phase - 180U) : (uint16_t)(360U - phase);
-            }
-            sample = (((uint32_t)amplitude * sin_val) / 90U);
+            sample = (((uint32_t)amplitude * AD9910_SineAbsQ14(phase)) +
+                      (AD9910_SINE_Q14_FULL_SCALE / 2UL)) / AD9910_SINE_Q14_FULL_SCALE;
             break;
-        }
         case AD9910_RAM_WAVE_SINC:
         {
             /* sinc(x) = sin(pi*x)/(pi*x) — symmetrical about half, with side lobes */
-            uint32_t x_q10;  /* x in Q0.10 fixed-point: -1..1 mapped from index */
-            uint32_t pi_x;   /* pi*x in Q10.12 */
-            uint32_t denominator;
+            uint32_t x_q10;
+            uint32_t pi_x_q10;
+            uint16_t angle_deg;
+            uint32_t sinc_q14;
             if (index > half) {
                 x_q10 = ((uint32_t)(index - half) * 1024UL) / half;
             } else {
@@ -279,19 +296,12 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
             if (x_q10 == 0U) {
                 sample = amplitude;  /* sinc(0) = 1 */
             } else {
-                /* sinc(x) ~= sin(pi*x) / (pi*x); use piecewise linear sin for RAM gen */
-                pi_x = (x_q10 * 3217UL) / 1024UL;  /* pi in Q10.12: 3.14159 * 1024 */
-                if (pi_x > 1608UL) pi_x = 3217UL - pi_x;  /* sin symmetry */
-                if (pi_x < 1608UL) {
-                    sample = ((uint32_t)amplitude * (1608UL - pi_x)) / 1608UL;
-                } else {
-                    sample = 0U;
-                }
-                denominator = x_q10;
-                if (denominator > 0U) {
-                    sample = sample / denominator;
-                }
-                if (sample > amplitude) sample = amplitude;
+                pi_x_q10 = (x_q10 * 3217UL) / 1024UL;  /* pi*x in Q10 */
+                angle_deg = (uint16_t)(((x_q10 * 180UL) + 512UL) / 1024UL);
+                sinc_q14 = ((uint32_t)AD9910_SineAbsQ14(angle_deg) * 1024UL +
+                            (pi_x_q10 / 2UL)) / pi_x_q10;
+                sample = (((uint32_t)amplitude * sinc_q14) +
+                          (AD9910_SINE_Q14_FULL_SCALE / 2UL)) / AD9910_SINE_Q14_FULL_SCALE;
             }
             break;
         }

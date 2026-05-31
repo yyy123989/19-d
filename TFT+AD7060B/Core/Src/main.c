@@ -28,6 +28,7 @@
 #include "ad7606b.h"
 #include "dds_app.h"
 #include "lcd.h"
+#include "measure_app.h"
 #include "serial_cmd.h"
 #include "serial_screen.h"
 #include "serial_wave.h"
@@ -133,12 +134,17 @@ static void APP_TIM4_Init(void)
 
 void APP_TIM3_IRQHandler(void)
 {
-  AD7606B_StartConversion();
+  if ((AD_BUSY_GPIO_Port->IDR & AD_BUSY_Pin) == 0U) {
+    AD7606B_StartConversion();
+  } else {
+    ad_sample_fail_count++;
+  }
 }
 
 void APP_AD_BUSY_IRQHandler(void)
 {
   if (AD7606B_ReadChannelsReady((int16_t *)ad_samples) != 0U) {
+    Measure_AppAccumulate((const int16_t *)ad_samples);
     ad_sample_count++;
     ad_last_read_ok = 1U;
   } else {
@@ -191,6 +197,7 @@ int main(void)
   SerialWave_Init();
   SerialCommand_Init();
   SerialScreen_Init();
+  Measure_AppInit();
   UI_MenuKeysInit();
   LCD_Init();
   LCD_Fill(LCD_COLOR_RED);

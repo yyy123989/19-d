@@ -1,5 +1,6 @@
 # Local tool settings
 .claude/
+.codegraph/
 .tmp_*/
 **/.vscode/
 *.local.json
@@ -26,6 +27,7 @@ TFT+AD7060B/tmp_*.png
 # Keil / ARMCC build outputs
 **/Output/
 **/MDK-ARM/TFT_AD7606B/
+**/MDK-ARM/2019_D/
 **/MDK-ARM/ckp/
 **/MDK-ARM/*.log
 **/MDK-ARM/**/*.log

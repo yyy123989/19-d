@@ -74,7 +74,6 @@ static uint8_t AD7606B_ReadSerialFrame(int16_t samples[AD7606B_CHANNEL_COUNT])
     /* Flush SPI RX before starting the frame. */
     (void)SPI1->DR;
     (void)SPI1->SR;
-    SPI1->CR1 |= SPI_CR1_SPE;
 
     for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
         if (AD7606B_SpiTransferWord(&words[i]) == 0U) {
@@ -101,7 +100,6 @@ void AD7606B_Init(void)
 {
     HAL_GPIO_WritePin(AD_CS_GPIO_Port, AD_CS_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(AD_WR_GPIO_Port, AD_WR_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(AD_CONVST_GPIO_Port, AD_CONVST_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(AD_STBY_GPIO_Port, AD_STBY_Pin, GPIO_PIN_SET);
 
     /* PAR/SER high selects serial mode; PA5/PA6 are SPI1 SCLK/MISO for AD7606B. */
@@ -111,10 +109,15 @@ void AD7606B_Init(void)
     HAL_GPIO_WritePin(AD_OS1_GPIO_Port, AD_OS1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(AD_OS2_GPIO_Port, AD_OS2_Pin, GPIO_PIN_RESET);
 
+    HAL_NVIC_DisableIRQ(EXTI1_IRQn);
     HAL_GPIO_WritePin(AD_RESET_GPIO_Port, AD_RESET_Pin, GPIO_PIN_SET);
     HAL_Delay(1);
     HAL_GPIO_WritePin(AD_RESET_GPIO_Port, AD_RESET_Pin, GPIO_PIN_RESET);
     HAL_Delay(1);
+    __HAL_GPIO_EXTI_CLEAR_IT(AD_BUSY_Pin);
+    HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
+    HAL_GPIO_WritePin(AD_CONVST_GPIO_Port, AD_CONVST_Pin, GPIO_PIN_SET);
 
     SPI1->CR1 |= SPI_CR1_SPE;
 }
