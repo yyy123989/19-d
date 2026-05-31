@@ -9,19 +9,30 @@
 #define MEASURE_LINE_CHARS 40U
 #define MEASURE_LINE_HEIGHT 24U
 #define MEASURE_TEXT_X 4U
+#define MEASURE_DRAW_CACHE_LINES 9U
+#define MEASURE_TRACK_CHANNEL_COUNT 3U
+#define MEASURE_MIN_VPP_MV 20UL
 #define MEASURE_GAIN_INPUT_CH 1U
 #define MEASURE_GAIN_OUTPUT_CH 2U
 
 typedef struct {
   uint32_t count;
-  uint32_t vpp_mv[AD7606B_CHANNEL_COUNT];
+  uint32_t vpp_mv[MEASURE_TRACK_CHANNEL_COUNT];
   uint8_t valid;
 } Measure_Snapshot;
 
-static volatile int16_t measure_min_raw[AD7606B_CHANNEL_COUNT];
-static volatile int16_t measure_max_raw[AD7606B_CHANNEL_COUNT];
+typedef struct {
+  uint16_t y;
+  uint16_t color;
+  char text[MEASURE_LINE_CHARS];
+  uint8_t valid;
+} Measure_DrawCacheLine;
+
+static volatile int16_t measure_min_raw[MEASURE_TRACK_CHANNEL_COUNT];
+static volatile int16_t measure_max_raw[MEASURE_TRACK_CHANNEL_COUNT];
 static volatile uint32_t measure_count;
 static Measure_Snapshot measure_last;
+static Measure_DrawCacheLine measure_draw_cache[MEASURE_DRAW_CACHE_LINES];
 static uint32_t measure_open_vpp_mv;
 static uint32_t measure_load_vpp_mv;
 static uint8_t measure_open_valid;
@@ -32,11 +43,57 @@ static void Measure_ResetAccumLocked(void)
 {
   uint8_t i;
 
-  for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+  for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
     measure_min_raw[i] = INT16_MAX;
     measure_max_raw[i] = INT16_MIN;
   }
   measure_count = 0U;
+}
+
+static void Measure_DrawCacheInvalidate(void)
+{
+  uint8_t i;
+
+  for (i = 0U; i < MEASURE_DRAW_CACHE_LINES; i++) {
+    measure_draw_cache[i].valid = 0U;
+  }
+}
+
+static uint8_t Measure_DrawCacheChanged(uint16_t y, const char *text, uint16_t color)
+{
+  uint8_t i;
+  uint8_t empty = MEASURE_DRAW_CACHE_LINES;
+
+  for (i = 0U; i < MEASURE_DRAW_CACHE_LINES; i++) {
+    if (measure_draw_cache[i].valid == 0U) {
+      if (empty == MEASURE_DRAW_CACHE_LINES) {
+        empty = i;
+      }
+      continue;
+    }
+
+    if (measure_draw_cache[i].y == y) {
+      if ((measure_draw_cache[i].color == color) &&
+          (strcmp(measure_draw_cache[i].text, text) == 0)) {
+        return 0U;
+      }
+      measure_draw_cache[i].color = color;
+      (void)snprintf(measure_draw_cache[i].text,
+                     sizeof(measure_draw_cache[i].text), "%s", text);
+      return 1U;
+    }
+  }
+
+  if (empty >= MEASURE_DRAW_CACHE_LINES) {
+    empty = 0U;
+  }
+
+  measure_draw_cache[empty].valid = 1U;
+  measure_draw_cache[empty].y = y;
+  measure_draw_cache[empty].color = color;
+  (void)snprintf(measure_draw_cache[empty].text,
+                 sizeof(measure_draw_cache[empty].text), "%s", text);
+  return 1U;
 }
 
 static void Measure_FormatMilli(char *buffer, uint32_t size, const char *label,
@@ -80,15 +137,15 @@ static uint32_t Measure_RawVppMv(int16_t min_raw, int16_t max_raw)
 
 static void Measure_UpdateSnapshot(void)
 {
-  int16_t min_copy[AD7606B_CHANNEL_COUNT];
-  int16_t max_copy[AD7606B_CHANNEL_COUNT];
+  int16_t min_copy[MEASURE_TRACK_CHANNEL_COUNT];
+  int16_t max_copy[MEASURE_TRACK_CHANNEL_COUNT];
   uint32_t count_copy;
   uint8_t i;
 
   __disable_irq();
   count_copy = measure_count;
   if (count_copy != 0U) {
-    for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+    for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
       min_copy[i] = measure_min_raw[i];
       max_copy[i] = measure_max_raw[i];
     }
@@ -102,7 +159,7 @@ static void Measure_UpdateSnapshot(void)
 
   measure_last.count = count_copy;
   measure_last.valid = 1U;
-  for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+  for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
     measure_last.vpp_mv[i] = Measure_RawVppMv(min_copy[i], max_copy[i]);
   }
 }
@@ -112,7 +169,8 @@ static uint8_t Measure_CalcGainMilli(uint32_t *gain_milli)
   uint32_t vin = measure_last.vpp_mv[MEASURE_GAIN_INPUT_CH];
   uint32_t vout = measure_last.vpp_mv[MEASURE_GAIN_OUTPUT_CH];
 
-  if ((measure_last.valid == 0U) || (vin == 0U)) {
+  if ((measure_last.valid == 0U) || (vin < MEASURE_MIN_VPP_MV) ||
+      (vout < MEASURE_MIN_VPP_MV)) {
     return 0U;
   }
 
@@ -126,7 +184,8 @@ static uint8_t Measure_CalcInputOhm(uint32_t *rin_ohm)
   uint32_t input_vpp = measure_last.vpp_mv[1];
   uint32_t drop_vpp;
 
-  if ((measure_last.valid == 0U) || (source_vpp <= input_vpp) || (input_vpp == 0U)) {
+  if ((measure_last.valid == 0U) || (source_vpp < MEASURE_MIN_VPP_MV) ||
+      (input_vpp < MEASURE_MIN_VPP_MV) || (source_vpp <= input_vpp)) {
     return 0U;
   }
 
@@ -139,7 +198,9 @@ static uint8_t Measure_CalcInputOhm(uint32_t *rin_ohm)
 static uint8_t Measure_CalcOutputOhm(uint32_t *rout_ohm)
 {
   if ((measure_open_valid == 0U) || (measure_load_valid == 0U) ||
-      (measure_load_vpp_mv == 0U) || (measure_open_vpp_mv <= measure_load_vpp_mv)) {
+      (measure_load_vpp_mv < MEASURE_MIN_VPP_MV) ||
+      (measure_open_vpp_mv < MEASURE_MIN_VPP_MV) ||
+      (measure_open_vpp_mv <= measure_load_vpp_mv)) {
     return 0U;
   }
 
@@ -153,6 +214,10 @@ static void Measure_DrawLine(uint16_t y, const char *text, uint16_t color)
 {
   uint32_t tail_x;
 
+  if (Measure_DrawCacheChanged(y, text, color) == 0U) {
+    return;
+  }
+
   LCD_DrawString(MEASURE_TEXT_X, y, text, color, LCD_COLOR_BLACK, 2U);
   tail_x = (uint32_t)MEASURE_TEXT_X + ((uint32_t)strlen(text) * 12UL);
   if ((tail_x + 1U) < LCD_WIDTH) {
@@ -160,6 +225,11 @@ static void Measure_DrawLine(uint16_t y, const char *text, uint16_t color)
                  (uint16_t)((uint32_t)LCD_WIDTH - tail_x),
                  MEASURE_LINE_HEIGHT, LCD_COLOR_BLACK);
   }
+}
+
+void Measure_AppInvalidate(void)
+{
+  Measure_DrawCacheInvalidate();
 }
 
 void Measure_AppInit(void)
@@ -172,9 +242,10 @@ void Measure_AppInit(void)
 
   measure_last.count = 0U;
   measure_last.valid = 0U;
-  for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+  for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
     measure_last.vpp_mv[i] = 0UL;
   }
+  Measure_DrawCacheInvalidate();
   measure_open_vpp_mv = 0UL;
   measure_load_vpp_mv = 0UL;
   measure_open_valid = 0U;
@@ -191,12 +262,12 @@ void Measure_AppAccumulate(const int16_t samples[AD7606B_CHANNEL_COUNT])
   }
 
   if (measure_count == 0U) {
-    for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+    for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
       measure_min_raw[i] = samples[i];
       measure_max_raw[i] = samples[i];
     }
   } else {
-    for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
+    for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
       if (samples[i] < measure_min_raw[i]) {
         measure_min_raw[i] = samples[i];
       }
@@ -228,12 +299,14 @@ void Measure_AppHandleKey(UI_KeyEvent event)
       measure_load_valid = 1U;
       measure_capture_load_next = 0U;
     }
+    Measure_DrawCacheInvalidate();
   } else if (event == UI_KEY_EVENT_KEY1_SHORT) {
     measure_open_vpp_mv = 0UL;
     measure_load_vpp_mv = 0UL;
     measure_open_valid = 0U;
     measure_load_valid = 0U;
     measure_capture_load_next = 0U;
+    Measure_DrawCacheInvalidate();
   }
 }
 

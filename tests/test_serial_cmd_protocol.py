@@ -1,6 +1,9 @@
 import unittest
+import pathlib
 
 from tools.serial_cmd_protocol import parse_command
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class SerialCommandProtocolTest(unittest.TestCase):
@@ -42,6 +45,12 @@ class SerialCommandProtocolTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parse_command("DDS P=361")
+
+    def test_firmware_command_responses_check_tx_queue_result(self):
+        source = (ROOT / "TFT+AD7060B/Core/Src/serial_cmd.c").read_text(encoding="utf-8")
+
+        self.assertIn("SerialCommand_WriteText", source)
+        self.assertNotIn("(void)USART1_Write", source)
 
 
 if __name__ == "__main__":

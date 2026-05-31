@@ -630,6 +630,9 @@ void DDS_AppDraw(const int16_t samples[AD7606B_CHANNEL_COUNT],
   if ((draw_cache_valid == 0U) || (draw_cache_page != dds_app.page)) {
     LCD_FillRect(0U, 0U, 240U, 320U, LCD_COLOR_BLACK);
     DDS_DrawCacheInvalidate();
+    if (dds_app.page == DDS_PAGE_MEASURE) {
+      Measure_AppInvalidate();
+    }
     draw_cache_page = dds_app.page;
     draw_cache_valid = 1U;
   }

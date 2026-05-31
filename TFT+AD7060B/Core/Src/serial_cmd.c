@@ -197,6 +197,14 @@ static SerialCommand_ParseResult SerialCommand_ParseLine(char *line,
   return (*field_mask == 0U) ? SERIAL_CMD_PARSE_FORMAT : SERIAL_CMD_PARSE_OK;
 }
 
+static uint8_t SerialCommand_WriteText(const char *text, uint16_t len)
+{
+  if ((text == 0) || (len == 0U)) {
+    return 0U;
+  }
+  return USART1_Write((const uint8_t *)text, len);
+}
+
 static void SerialCommand_SendState(const char *prefix)
 {
   char response[48];
@@ -212,7 +220,9 @@ static void SerialCommand_SendState(const char *prefix)
                  (unsigned int)amplitude,
                  (unsigned int)phase_deg);
   if ((len > 0) && ((uint32_t)len < sizeof(response))) {
-    (void)USART1_Write((const uint8_t *)response, (uint16_t)len);
+    if (SerialCommand_WriteText(response, (uint16_t)len) == 0U) {
+      return;
+    }
   }
 }
 
@@ -224,7 +234,9 @@ static void SerialCommand_SendError(SerialCommand_ParseResult result)
     message = "ERR DDS RANGE\r\n";
   }
 
-  (void)USART1_Write((const uint8_t *)message, (uint16_t)strlen(message));
+  if (SerialCommand_WriteText(message, (uint16_t)strlen(message)) == 0U) {
+    return;
+  }
 }
 
 static void SerialCommand_ProcessLine(void)
