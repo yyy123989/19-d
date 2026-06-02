@@ -329,13 +329,21 @@ static void DDS_AppIncrementSelected(void)
   }
 }
 
+static void DDS_AppDisableOsk(void)
+{
+  dds_app.osk_mode = DDS_OSK_OFF;
+  dds_app.osk_output = 0U;
+  dds_app.osk_tick_ms = 0U;
+  AD9910_SetOsk(0U);
+}
+
 static void DDS_AppApplySingle(void)
 {
   uint32_t freq = DDS_AppCalibratedFreq(dds_app.single_freq_hz);
   uint16_t amp = DDS_AppCalibratedAmp(dds_app.single_amp_code);
   uint16_t phase = DDS_AppCalibratedPhase(dds_app.single_phase_deg);
 
-  AD9910_SetOsk(0U);
+  DDS_AppDisableOsk();
   AD9910_SetSingleTone(freq, amp, phase);
   AD9910_SelectProfile0();
   dds_app.active_mode = DDS_MODE_SINGLE;
@@ -358,19 +366,19 @@ static void DDS_AppApplyRam(void)
       table = AD9910_RAM_PHA;
       break;
     case DDS_RAM_TABLE_TRI:
-      AD9910_SetOsk(0U);
+      DDS_AppDisableOsk();
       AD9910_SetRamPlayback(dds_ram_mode_table[dds_app.ram_mode], AD9910_RAM_WAVE_TRIANGLE,
                             ram_freq, ram_amp, 500U);
       dds_app.active_mode = DDS_MODE_RAM;
       return;
     case DDS_RAM_TABLE_SQR:
-      AD9910_SetOsk(0U);
+      DDS_AppDisableOsk();
       AD9910_SetRamPlayback(dds_ram_mode_table[dds_app.ram_mode], AD9910_RAM_WAVE_SQUARE,
                             ram_freq, ram_amp, 500U);
       dds_app.active_mode = DDS_MODE_RAM;
       return;
     case DDS_RAM_TABLE_SINC:
-      AD9910_SetOsk(0U);
+      DDS_AppDisableOsk();
       AD9910_SetRamPlayback(dds_ram_mode_table[dds_app.ram_mode], AD9910_RAM_WAVE_SINC,
                             ram_freq, ram_amp, 500U);
       dds_app.active_mode = DDS_MODE_RAM;
@@ -382,7 +390,7 @@ static void DDS_AppApplyRam(void)
       break;
   }
 
-  AD9910_SetOsk(0U);
+  DDS_AppDisableOsk();
   AD9910_SetRamTablePlayback(dds_ram_mode_table[dds_app.ram_mode], target, table, AD9910_RAM_TABLE_POINTS);
   dds_app.active_mode = DDS_MODE_RAM;
 }
@@ -394,7 +402,7 @@ static void DDS_AppApplyDrg(void)
   uint32_t step = dds_drg_step_table[dds_app.drg_step];
   uint16_t rate = dds_drg_rate_table[dds_app.drg_rate];
 
-  AD9910_SetOsk(0U);
+  DDS_AppDisableOsk();
   AD9910_SetDigitalRampHold(0U);
   AD9910_SetDigitalRampFrequency(lower, upper, step, step, rate, rate);
   if (dds_app.drg_dir == 1U) {   /* UI "DOWN": DRCTL=0 → negative sweep */
@@ -597,8 +605,9 @@ void DDS_AppGetSingle(uint32_t *freq_hz, uint16_t *amplitude, uint16_t *phase_de
 
 void DDS_AppTick(uint32_t now_ms)
 {
-  /* OSK AUTO toggles regardless of current page to avoid freezing output. */
-  if ((dds_app.osk_mode == DDS_OSK_AUTO) &&
+  /* OSK AUTO may keep running across UI pages, but only while OSK is the active output mode. */
+  if ((dds_app.active_mode == DDS_MODE_OSK) &&
+      (dds_app.osk_mode == DDS_OSK_AUTO) &&
       ((uint32_t)(now_ms - dds_app.osk_tick_ms) >= DDS_OSK_TOGGLE_MS)) {
     dds_app.osk_tick_ms = now_ms;
     dds_app.osk_output ^= 1U;
