@@ -38,9 +38,8 @@ static const uint8_t AD9910_CFR2_FREQ_DRG[AD9910_CFR_BYTES] = {0x00U, 0x48U, 0x0
 static const uint8_t AD9910_CFR3_1GHZ_PLL[AD9910_CFR_BYTES] = {0x05U, 0x0FU, 0x41U, 0x50U};
 
 /*
- * Wiring note: the AD9910 V1.2 reference code and some module docs use
- * PB3/PB5 for SCLK/SDIO. This project is actually wired through main.h as
- * DDS_SCLK=PB13 and DDS_SDIO=PB15, so the project pin definitions win.
+ * 接线说明：部分 AD9910 V1.2 参考代码和模块文档写的是 PB3/PB5 做 SCLK/SDIO。
+ * 本工程实际按 main.h 中的定义接线，DDS_SCLK=PB13，DDS_SDIO=PB15。
  */
 
 static uint32_t AD9910_ClampFrequency(uint32_t freq_hz)
@@ -63,6 +62,7 @@ static void AD9910_ShortDelay(void)
 {
     uint8_t i;
 
+    /* GPIO 位操作速度很快，给 SDIO 建立时间、SCLK 高低电平保持时间留余量。 */
     for (i = 0U; i < AD9910_DELAY_NOP_COUNT; i++) {
         __NOP();
     }
@@ -96,6 +96,7 @@ static void AD9910_WriteByte(uint8_t data)
 {
     uint8_t i;
 
+    /* AD9910 串行口在 SCLK 上升沿采样 SDIO，先放数据再拉高时钟。 */
     AD9910_PinClr(DDS_SCLK_GPIO_Port, DDS_SCLK_Pin);
     for (i = 0U; i < 8U; i++) {
         if ((data & 0x80U) != 0U) {
@@ -122,6 +123,10 @@ static void AD9910_WriteRegister(uint8_t reg, const uint8_t *data, uint8_t len)
         return;
     }
 
+    /*
+     * 一次寄存器写入期间不要被 EXTI/TIM 中断打断。
+     * 若 CS 低电平中间被拉长或 SCLK 被打断，AD9910 可能把一个包识别成两次写入。
+     */
     primask = __get_PRIMASK();
     __disable_irq();
 
@@ -204,6 +209,7 @@ static uint32_t AD9910_RamStepRate(uint32_t freq_hz)
         return 1U;
     }
 
+    /* RAM 播放步进率由 SYSCLK、点数和目标波形频率共同决定。 */
     denom = 4ULL * AD9910_RAM_POINTS * freq_hz;
     step = (((uint64_t)AD9910_DEFAULT_SYSCLK_HZ) + (denom / 2ULL)) / denom;
     if (step == 0ULL) {
@@ -302,18 +308,19 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
 
     switch (wave) {
         case AD9910_RAM_WAVE_SQUARE:
+            /* 方波包络是单极性幅度表，占空比用千分比表示。 */
             sample = (((uint32_t)index * 1000UL) < ((uint32_t)AD9910_RAM_POINTS * duty_permille)) ?
                      amplitude : 0U;
             break;
         case AD9910_RAM_WAVE_SINE:
-            /* Full-wave rectified sine envelope; RAM amplitude values are unipolar. */
+            /* RAM 幅度表是单极性值，这里生成全波整流正弦包络。 */
             phase = (uint16_t)(((uint32_t)index * 360U) / AD9910_RAM_POINTS);
             sample = (((uint32_t)amplitude * AD9910_SineAbsQ14(phase)) +
                       (AD9910_SINE_Q14_FULL_SCALE / 2UL)) / AD9910_SINE_Q14_FULL_SCALE;
             break;
         case AD9910_RAM_WAVE_SINC:
         {
-            /* sinc(x) = sin(pi*x)/(pi*x) — symmetrical about half, with side lobes */
+            /* sinc(x)=sin(pi*x)/(pi*x)，以中点为主瓣，两侧为旁瓣。 */
             uint32_t x_q10;
             uint32_t pi_x_q10;
             uint16_t angle_deg;
@@ -324,7 +331,7 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
                 x_q10 = ((uint32_t)(half - index) * 1024UL) / half;
             }
             if (x_q10 == 0U) {
-                sample = amplitude;  /* sinc(0) = 1 */
+                sample = amplitude;  /* sinc(0)=1，中心点取满幅度。 */
             } else {
                 pi_x_q10 = (x_q10 * 3217UL) / 1024UL;  /* pi*x in Q10 */
                 angle_deg = (uint16_t)(((x_q10 * 180UL) + 512UL) / 1024UL);
@@ -337,6 +344,7 @@ static uint16_t AD9910_RamWaveSample(AD9910_RamWave wave, uint16_t index,
         }
         case AD9910_RAM_WAVE_TRIANGLE:
         default:
+            /* 三角波按 0 -> 峰值 -> 0 生成，仍然是单极性 RAM 幅度表。 */
             phase = (index < half) ? index : (uint16_t)(AD9910_RAM_POINTS - 1U - index);
             sample = (((uint32_t)amplitude * phase) / (half - 1U));
             break;

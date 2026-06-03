@@ -45,7 +45,7 @@
 /* USER CODE BEGIN PD */
 #define APP_LCD_REFRESH_MS 33U
 #define APP_SAMPLE_RATE_HZ 40000U
-#define APP_TIM_CLOCK_HZ 84000000U  /* APB1 timer clock, used by both TIM3 and TIM4 */
+#define APP_TIM_CLOCK_HZ 84000000U  /* APB1 定时器时钟，TIM3 采样和 TIM4 扫频共用 */
 #define APP_DRG_TIMER_TICK_HZ 10000U
 #define APP_DRG_DIRECTION_MS 1100U
 #define APP_SERIAL_TASK_MS 20U
@@ -61,8 +61,7 @@
 
 /* USER CODE BEGIN PV */
 volatile int16_t ad_samples[AD7606B_CHANNEL_COUNT];
-volatile uint32_t ad_sample_count;   /* incremented in BUSY ISR; available for future stats display.
-                                       * Wraps after ~29.8h at 40kHz — handle rollover if used long-term. */
+volatile uint32_t ad_sample_count;   /* BUSY 中断中递增，40kHz 下约 29.8 小时回绕一次。 */
 volatile uint32_t ad_sample_fail_count;
 volatile uint32_t ad_sample_rate_hz;
 volatile uint8_t ad_last_read_ok;
@@ -84,6 +83,7 @@ static void APP_TIM3_Init(void)
 {
   uint32_t period = (APP_TIM_CLOCK_HZ / APP_SAMPLE_RATE_HZ);
 
+  /* TIM3 只负责固定频率触发 CONVST，不在定时器中断里等待 ADC 转换完成。 */
   __HAL_RCC_TIM3_CLK_ENABLE();
 
   if (period == 0U) {
@@ -126,7 +126,7 @@ static void APP_TIM4_Init(void)
   TIM4->SR = 0U;
   TIM4->DIER = TIM_DIER_UIE;
 
-  HAL_NVIC_SetPriority(TIM4_IRQn, 2, 0);  /* low priority — DRG toggle is not timing-critical */
+  HAL_NVIC_SetPriority(TIM4_IRQn, 2, 0);  /* TIM4 只翻转 DRG 方向，优先级低于采样链路。 */
   HAL_NVIC_EnableIRQ(TIM4_IRQn);
 
   TIM4->CR1 = TIM_CR1_CEN;
@@ -134,6 +134,7 @@ static void APP_TIM4_Init(void)
 
 void APP_TIM3_IRQHandler(void)
 {
+  /* BUSY 仍为高说明上一帧没读完，跳过本次触发并计入失败次数。 */
   if ((AD_BUSY_GPIO_Port->IDR & AD_BUSY_Pin) == 0U) {
     AD7606B_StartConversion();
   } else {
@@ -143,6 +144,7 @@ void APP_TIM3_IRQHandler(void)
 
 void APP_AD_BUSY_IRQHandler(void)
 {
+  /* AD7606B 转换完成后立即读 8 通道，尽量缩短下一次 TIM3 到来前的占用窗口。 */
   if (AD7606B_ReadChannelsReady((int16_t *)ad_samples) != 0U) {
     Measure_AppAccumulate((const int16_t *)ad_samples);
     ad_sample_count++;
@@ -194,6 +196,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 初始化顺序：先串口/按键/显示/测量框架，再复位外设 AD7606B 和 AD9910。 */
   SerialWave_Init();
   SerialCommand_Init();
   SerialScreen_Init();
@@ -242,6 +245,7 @@ int main(void)
     serial_due = ((uint32_t)(now - last_serial_tick) >= APP_SERIAL_TASK_MS) ? 1U : 0U;
 
     if ((draw_due != 0U) || (serial_due != 0U)) {
+      /* 显示和串口使用同一份快照，避免读到 ISR 正在更新的一半数据。 */
       __disable_irq();
       for (i = 0U; i < AD7606B_CHANNEL_COUNT; i++) {
         snapshot_samples[i] = ad_samples[i];

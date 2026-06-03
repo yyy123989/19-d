@@ -46,6 +46,7 @@ typedef enum {
   DDS_OSK_COUNT
 } DDS_OskMode;
 
+/* RAM 页面显示的 6 个选项，前 3 个使用参考表，后 3 个运行时生成波形表。 */
 typedef enum {
   DDS_RAM_TABLE_AMP = 0,
   DDS_RAM_TABLE_FRE,
@@ -56,6 +57,7 @@ typedef enum {
   DDS_RAM_TABLE_COUNT
 } DDS_RamTable;
 
+/* DDS_AppState 是 UI 状态和当前 DDS 输出参数的单一来源。 */
 typedef struct {
   DDS_Page page;
   DDS_Mode home_mode;
@@ -94,6 +96,7 @@ static const char *dds_mode_names[] = {
   "SINGLE", "RAM", "DRG", "OSK", "CAL", "AD VIEW", "MEASURE"
 };
 
+/* 频率表用于按键快速选择；串口自定义频率会直接写 single_freq_hz。 */
 static const uint32_t dds_freq_table[] = {
   0UL, 1UL, 10UL, 100UL, 500UL, 1000UL, 5000UL, 10000UL, 50000UL,
   100000UL, 500000UL, 1000000UL, 5000000UL, 10000000UL, 50000000UL,
@@ -135,6 +138,7 @@ static DDS_DrawCacheLine draw_cache[DDS_DRAW_CACHE_LINES];
 static DDS_Page draw_cache_page = DDS_PAGE_HOME;
 static uint8_t draw_cache_valid;
 
+/* TFT 写 FSMC 比较耗时，缓存每行文本，只有内容变化时才重画。 */
 static void DDS_DrawCacheInvalidate(void)
 {
   uint8_t i;
@@ -331,6 +335,7 @@ static void DDS_AppIncrementSelected(void)
 
 static void DDS_AppDisableOsk(void)
 {
+  /* 切到非 OSK 模式前必须关掉 OSK，否则 AUTO 翻转可能把后续输出静音。 */
   dds_app.osk_mode = DDS_OSK_OFF;
   dds_app.osk_output = 0U;
   dds_app.osk_tick_ms = 0U;
@@ -343,6 +348,7 @@ static void DDS_AppApplySingle(void)
   uint16_t amp = DDS_AppCalibratedAmp(dds_app.single_amp_code);
   uint16_t phase = DDS_AppCalibratedPhase(dds_app.single_phase_deg);
 
+  /* 单频输出使用校准后的频率、幅度和相位，并固定 Profile0。 */
   DDS_AppDisableOsk();
   AD9910_SetSingleTone(freq, amp, phase);
   AD9910_SelectProfile0();
@@ -356,6 +362,7 @@ static void DDS_AppApplyRam(void)
   uint32_t ram_freq = DDS_AppCalibratedFreq(1000UL);
   uint16_t ram_amp = DDS_AppCalibratedAmp(AD9910_MAX_AMPLITUDE);
 
+  /* RAM 模式统一只用 Profile0，避免外接 PROFILE1/2 电平影响播放模式。 */
   switch ((DDS_RamTable)dds_app.ram_table) {
     case DDS_RAM_TABLE_FRE:
       target = AD9910_RAM_TARGET_FREQUENCY;
@@ -405,9 +412,9 @@ static void DDS_AppApplyDrg(void)
   DDS_AppDisableOsk();
   AD9910_SetDigitalRampHold(0U);
   AD9910_SetDigitalRampFrequency(lower, upper, step, step, rate, rate);
-  if (dds_app.drg_dir == 1U) {   /* UI "DOWN": DRCTL=0 → negative sweep */
+  if (dds_app.drg_dir == 1U) {   /* UI 选择 DOWN 时，DRCTL=0，执行负向扫频。 */
     dds_app.drg_rising = 0U;
-  } else {                       /* UI "UP"(0) or "BOTH"(2): DRCTL=1 → positive sweep */
+  } else {                       /* UI 选择 UP 或 BOTH 时，先让 DRCTL=1，执行正向扫频。 */
     dds_app.drg_rising = 1U;
   }
   AD9910_SetDigitalRampDirection(dds_app.drg_rising);
@@ -483,6 +490,7 @@ static void DDS_DrawTopBar(const int16_t samples[AD7606B_CHANNEL_COUNT],
 
 void DDS_AppInit(void)
 {
+  /* 默认上电输出 1kHz 单频，其他页面参数保留在结构体里等待用户切换。 */
   dds_app.page = DDS_PAGE_HOME;
   dds_app.home_mode = DDS_MODE_SINGLE;
   dds_app.active_mode = DDS_MODE_SINGLE;
@@ -516,6 +524,7 @@ void DDS_AppHandleKey(UI_KeyEvent event)
   }
 
   if (dds_app.page == DDS_PAGE_HOME) {
+    /* 首页短按切模式，长按进入当前模式页面。 */
     if ((event == UI_KEY_EVENT_KEY1_SHORT) || (event == UI_KEY_EVENT_KEY0_SHORT)) {
       dds_app.home_mode = (DDS_Mode)((dds_app.home_mode + 1U) % DDS_MODE_COUNT);
     } else if (event == UI_KEY_EVENT_KEY0_LONG) {
@@ -572,6 +581,7 @@ uint8_t DDS_AppSetSingleCustom(uint32_t freq_hz, uint16_t amplitude, uint16_t ph
     return 0U;
   }
 
+  /* 串口命令可只改部分字段，未出现在 field_mask 中的参数保持原值。 */
   if ((field_mask & DDS_SINGLE_FIELD_FREQ) != 0U) {
     dds_app.single_freq_hz = DDS_AppClampFreq(freq_hz);
   }
@@ -605,7 +615,7 @@ void DDS_AppGetSingle(uint32_t *freq_hz, uint16_t *amplitude, uint16_t *phase_de
 
 void DDS_AppTick(uint32_t now_ms)
 {
-  /* OSK AUTO may keep running across UI pages, but only while OSK is the active output mode. */
+  /* OSK AUTO 只允许在 OSK 为当前输出模式时翻转，避免后台把 DDS 输出关掉。 */
   if ((dds_app.active_mode == DDS_MODE_OSK) &&
       (dds_app.osk_mode == DDS_OSK_AUTO) &&
       ((uint32_t)(now_ms - dds_app.osk_tick_ms) >= DDS_OSK_TOGGLE_MS)) {

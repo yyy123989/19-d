@@ -15,6 +15,12 @@
 #define MEASURE_GAIN_INPUT_CH 1U
 #define MEASURE_GAIN_OUTPUT_CH 2U
 
+/*
+ * 测量页通道约定：
+ * CH1=信号源 VS，CH2=被测输入 VIN，CH3=被测输出 OUT。
+ * 输入电阻：Rin = RS * VIN / (VS - VIN)，RS 由 measure_app.h 定义。
+ * 输出电阻：Rout = RL * (V0 - VL) / VL，KEY0 先采空载 V0，再采带载 VL。
+ */
 typedef struct {
   uint32_t count;
   uint32_t vpp_mv[MEASURE_TRACK_CHANNEL_COUNT];
@@ -43,6 +49,7 @@ static void Measure_ResetAccumLocked(void)
 {
   uint8_t i;
 
+  /* 该函数会在关中断状态下调用，用于重置 ISR 累积的峰峰值窗口。 */
   for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
     measure_min_raw[i] = INT16_MAX;
     measure_max_raw[i] = INT16_MIN;
@@ -142,6 +149,7 @@ static void Measure_UpdateSnapshot(void)
   uint32_t count_copy;
   uint8_t i;
 
+  /* 从中断累积区复制并清零，复制过程必须原子化，避免峰峰值被半更新。 */
   __disable_irq();
   count_copy = measure_count;
   if (count_copy != 0U) {
@@ -174,6 +182,7 @@ static uint8_t Measure_CalcGainMilli(uint32_t *gain_milli)
     return 0U;
   }
 
+  /* 增益用 m 倍表示，1000 表示 1.000 倍，便于无浮点显示。 */
   *gain_milli = (uint32_t)((((uint64_t)vout) * 1000ULL + (vin / 2UL)) / vin);
   return 1U;
 }
@@ -189,6 +198,7 @@ static uint8_t Measure_CalcInputOhm(uint32_t *rin_ohm)
     return 0U;
   }
 
+  /* 串联电阻分压法：RS 上压降为 VS - VIN。 */
   drop_vpp = source_vpp - input_vpp;
   *rin_ohm = (uint32_t)((((uint64_t)MEASURE_INPUT_SERIES_OHM) * input_vpp +
                          (drop_vpp / 2UL)) / drop_vpp);
@@ -204,6 +214,7 @@ static uint8_t Measure_CalcOutputOhm(uint32_t *rout_ohm)
     return 0U;
   }
 
+  /* 负载法：输出内阻等于负载电阻乘以幅度下降比例。 */
   *rout_ohm = (uint32_t)((((uint64_t)MEASURE_OUTPUT_LOAD_OHM) *
                           (measure_open_vpp_mv - measure_load_vpp_mv) +
                           (measure_load_vpp_mv / 2UL)) / measure_load_vpp_mv);
@@ -261,6 +272,7 @@ void Measure_AppAccumulate(const int16_t samples[AD7606B_CHANNEL_COUNT])
     return;
   }
 
+  /* BUSY 中断每读到一帧就调用一次，只维护 min/max，不做耗时显示计算。 */
   if (measure_count == 0U) {
     for (i = 0U; i < MEASURE_TRACK_CHANNEL_COUNT; i++) {
       measure_min_raw[i] = samples[i];
@@ -285,6 +297,7 @@ void Measure_AppAccumulate(const int16_t samples[AD7606B_CHANNEL_COUNT])
 void Measure_AppHandleKey(UI_KeyEvent event)
 {
   if (event == UI_KEY_EVENT_KEY0_SHORT) {
+    /* KEY0 第一次锁存空载输出 V0，第二次锁存带 RL 后的输出 VL。 */
     Measure_UpdateSnapshot();
     if (measure_last.valid == 0U) {
       return;
@@ -301,6 +314,7 @@ void Measure_AppHandleKey(UI_KeyEvent event)
     }
     Measure_DrawCacheInvalidate();
   } else if (event == UI_KEY_EVENT_KEY1_SHORT) {
+    /* KEY1 清除输出电阻测量的两次锁存值。 */
     measure_open_vpp_mv = 0UL;
     measure_load_vpp_mv = 0UL;
     measure_open_valid = 0U;

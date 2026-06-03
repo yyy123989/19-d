@@ -19,6 +19,7 @@ void SerialWave_Tick(uint32_t now_ms, const int16_t samples[AD7606B_CHANNEL_COUN
     return;
   }
 
+  /* USART1 输出给 SerialPlot，每行 8 个电压值，用逗号分隔。 */
   if ((uint32_t)(now_ms - serial_wave_last_tick) < SERIAL_WAVE_OUTPUT_INTERVAL_MS) {
     return;
   }

@@ -10,6 +10,13 @@
 #define SERIAL_CMD_LINE_CHARS 80U
 #define SERIAL_CMD_MAX_FREQ_HZ 420000000UL
 
+/*
+ * USART1 DDS 单频控制协议：
+ *   DDS F=1000 A=12000 P=0
+ *   SINGLE FREQ=5000 AMP=8000 PHASE=90
+ *   DDS?
+ * 频率单位 Hz，幅度为 AD9910 14-bit ASF 码值，范围 0..16383，相位单位度。
+ */
 typedef enum {
   SERIAL_CMD_PARSE_OK = 0,
   SERIAL_CMD_PARSE_EMPTY,
@@ -96,6 +103,7 @@ static char *SerialCommand_NextToken(char **cursor)
     return 0;
   }
 
+  /* 参数可以用空格、Tab 或逗号分隔，方便串口助手直接发送。 */
   while ((**cursor == ' ') || (**cursor == '\t') || (**cursor == ',')) {
     (*cursor)++;
   }
@@ -134,6 +142,7 @@ static SerialCommand_ParseResult SerialCommand_ParseLine(char *line,
     return SERIAL_CMD_PARSE_FORMAT;
   }
 
+  /* 查询命令不修改 DDS，只回传当前单频参数。 */
   if (SerialCommand_IsQuery(line) != 0U) {
     return SERIAL_CMD_PARSE_QUERY;
   }
@@ -262,6 +271,7 @@ static void SerialCommand_ProcessLine(void)
     return;
   }
 
+  /* 解析成功后直接切回单频输出，未指定的字段由 DDS_AppSetSingleCustom 保持原值。 */
   if (DDS_AppSetSingleCustom(freq_hz, amplitude, phase_deg, field_mask) != 0U) {
     SerialCommand_SendState("OK");
   } else {
@@ -278,6 +288,7 @@ void SerialCommand_Tick(void)
 {
   uint8_t data;
 
+  /* 主循环轮询接收缓冲，遇到 CR/LF 才执行一整行命令。 */
   while (USART1_ReadByte(&data) != 0U) {
     if ((data == '\r') || (data == '\n')) {
       if (serial_cmd_len != 0U) {

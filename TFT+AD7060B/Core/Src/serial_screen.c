@@ -28,6 +28,7 @@ static uint8_t SerialScreen_SendRaw(const char *command)
     len++;
   }
 
+  /* 串口屏指令必须以 0xFF 0xFF 0xFF 结束。 */
   (void)memcpy(packet, command, len);
   packet[len++] = 0xFFU;
   packet[len++] = 0xFFU;
@@ -115,6 +116,7 @@ void SerialScreen_Tick(uint32_t now_ms,
   }
   serial_screen_last_tick = now_ms;
 
+  /* 每个 tick 只更新几个字段，避免 USART2 队列占满后拖慢主循环。 */
   for (update = 0U; update < SERIAL_SCREEN_FIELDS_PER_TICK; update++) {
     if (serial_screen_field < AD7606B_CHANNEL_COUNT) {
       SerialScreen_SetChannel(serial_screen_field, samples[serial_screen_field]);
